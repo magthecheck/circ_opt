@@ -241,19 +241,29 @@ import json
 import multiprocessing as mp
 
 if __name__ == "__main__":
-    qubits = [5]
-    depths = [55,110]
-    for qubit in qubits:
-        fr_time_depth, rl_time_depth = [],[]
-        fr_time_var, rl_time_var = [],[]
-        for depth in depths:
-            print(f"Qubits, Depth {qubit, depth}")
-            fr_time, rl_time, fr_var, rl_var = get_results((qubit,depth))
-            fr_time_depth.append(fr_time)
-            rl_time_depth.append(rl_time)
-            fr_time_var.append(fr_var)
-            rl_time_var.append(rl_var)
-            print(rl_time, rl_var)
+
+    qubit = 5
+    depth = 55
+    print(f"Running single circuit: Qubits {qubit}, Dept {depth}")
+
+    fr_time, rl_time, fr_var, rl_var = get_results((qubit,depth))
+    print(f"RL Time: {rl_time}, RL Var: {rl_var}")
+
+    
+
+    # qubits = [5]
+    # depths = [55,110]
+    # for qubit in qubits:
+    #     fr_time_depth, rl_time_depth = [],[]
+    #     fr_time_var, rl_time_var = [],[]
+    #     for depth in depths:
+    #         print(f"Qubits, Depth {qubit, depth}")
+    #         fr_time, rl_time, fr_var, rl_var = get_results((qubit,depth))
+    #         fr_time_depth.append(fr_time)
+    #         rl_time_depth.append(rl_time)
+    #         fr_time_var.append(fr_var)
+    #         rl_time_var.append(rl_var)
+    #         print(rl_time, rl_var)
             
-        with open("./results/5x60_non_clifford/time_depth_"+str(qubit)+ ".json", "w") as f:
-            json.dump({"full_time":fr_time_depth, "rl_time":rl_time_depth, "full_var":fr_time_var, "rl_var":rl_time_var}, f)
+    #     with open("./results/5x60_non_clifford/time_depth_"+str(qubit)+ ".json", "w") as f:
+    #         json.dump({"full_time":fr_time_depth, "rl_time":rl_time_depth, "full_var":fr_time_var, "rl_var":rl_time_var}, f)
