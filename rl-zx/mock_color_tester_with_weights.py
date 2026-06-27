@@ -1,7 +1,8 @@
+import os
 import torch
 from torch_geometric.data import Data, Batch
 from rl_agent import AgentGNN
-from mock_env import MockColorEnv  # Assuming your mock env code is saved as mock_env.py
+from mock_env import MockColorEnv  
 
 def export_to_dot(graph, step_num, action_desc="None", reward_val=0.0):
     """
@@ -26,6 +27,7 @@ def export_to_dot(graph, step_num, action_desc="None", reward_val=0.0):
         color_name = color_name_map.get(color_val, "Unknown")
         dot_lines.append(f'    {node} [fillcolor="{hex_color}", fontcolor=white]; // {color_name}')
 
+    # disable edges -> only colours are interesting 
     dot_lines.append("\n    // Edge Connections")
     for u, v in sorted(graph.edges):
         if u <= v:
@@ -38,7 +40,20 @@ def export_to_dot(graph, step_num, action_desc="None", reward_val=0.0):
 # 1. Platform and Env Setup
 device = torch.device("cpu")
 env = MockColorEnv(num_nodes=5)
+
+# Initialize the GNN Agent Structure
 agent = AgentGNN(envs=None, device=device, c_hidden=32, c_hidden_v=32).to(device)
+
+# --- NEW: Load Your Computed Weights Matrix ---
+weights_path = "trained_color_gnn.pt"
+if os.path.exists(weights_path):
+    agent.load_state_dict(torch.load(weights_path, map_location=device))
+    print(f"Successfully loaded trained weights from '{weights_path}'!")
+    # Lock the network layer behaviors into assessment/inference mode
+    agent.eval()
+else:
+    print(f"Warning: '{weights_path}' not found. Running inference with random weights.")
+    agent.eval()
 
 color_map = {1: "Blue", 2: "Purple", 3: "Green"}
 total_actions = env.num_nodes * 2 
@@ -56,7 +71,7 @@ print("\n=== INITIAL STATE (STEP 0) ===")
 print(initial_dot)
 
 # 2. Multi-Step Interaction Loop
-for step in range(1, 11):
+for step in range(1, 30):
     # Extract Graph Tensors from the 'info' observation metadata wrapper
     raw_policy_obs, raw_value_obs = info["graph_obs"]
     policy_x, policy_edge_index = raw_policy_obs
@@ -85,8 +100,9 @@ for step in range(1, 11):
     critic_batch = Batch.from_data_list([critic_graph]).to(device)
     network_input = (policy_batch, critic_batch)
 
-    # 3. Agent Evaluation (Predict Action)
+    # 3. Agent Evaluation (Predict Action using loaded weights)
     with torch.no_grad():
+        # Your agent's get_action returns (action, action_id) in inference mode
         action, action_id = agent.get_action(network_input, device=device)
     
     chosen_action = action_id.item()

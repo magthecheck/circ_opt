@@ -68,8 +68,12 @@ class MockColorEnv(gym.Env):
         # Apply transition if rules are met
         if is_legal_move:
             self.graph.nodes[node]['color'] = new_color
-            reward = 1.0  # Reward for successful strategy execution
-        else:
+            if new_color == self.GREEN:
+                reward = 3.0
+
+            else:
+                reward = 0.3
+        else: 
             reward = -0.5 # Penalty for trying an invalid transition
             
         # Determine termination criteria
@@ -77,14 +81,7 @@ class MockColorEnv(gym.Env):
         truncated = False 
 
 
-        # Calculate terminal bonus if the episode is finished
-        if done: 
-            # Count how many nodes successfully reached the GREEN state
-            green_count = sum(1 for node in self.graph.nodes if self.graph.nodes[node]['color'] == self.GREEN)
 
-            # Weight factor (e.g. +2.0 per green node achieved) 
-            terminal_bonus = green_count * 2.0
-            reward += terminal_bonus
         
         info = {
             "node_changed": node,
