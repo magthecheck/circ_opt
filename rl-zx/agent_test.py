@@ -4,8 +4,9 @@ import random
 import time
 from distutils.util import strtobool
 
-import gym
+
 import gym_zx
+import gymnasium as gym
 import pandas as pd
 import numpy as np
 import pyzx as zx
@@ -15,7 +16,10 @@ from rl_agent import AgentGNN
 
 global device
 
-device = torch.device("cuda")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+
 
 
 def parse_args():
@@ -68,7 +72,7 @@ def get_results(param):
         [make_env(args.gym_id, args.seed + i, i, capture_video, run_name, qubits, depth) for i in range(args.num_envs)]
     )
 
-    agent = AgentGNN(envs, device).to(device)  
+    agent = AgentGNN(envs, device=device).to(device)  
 
     agent.load_state_dict(
         torch.load("state_dict_model5x70_twoqubits_new.pt", map_location=torch.device("cpu"))

@@ -243,6 +243,67 @@ class ZXEnv(gym.Env):
         )
 
 
+
+    def reset_with_custom_circuit(self, seed=None, options=None, custom_circuit=None):
+        if custom_circuit.qubits != self.qubits:
+            raise ValueError('Qubits of environment and custom circuit does not match')
+
+        
+        self.episode_len = 0
+        self.episode_reward = 0
+        self.action_pattern = []
+        self.max_reward = 0
+        self.opt_episode_len = 0
+        self.min_gates = self.depth
+        self.swap_cost = 0
+        self.initial_depth = 0
+        self.episode_stats = {"pivb": 0, "pivg": 0, "piv": 0, "lc": 0, "id": 0, "gf": 0}
+        self.best_action_stats= {"pivb": 0, "pivg": 0, "piv": 0, "lc": 0, "id": 0, "gf": 0}
+
+        if custom_circuit is None: 
+            raise ValueError('No custom circuit was provided')
+
+
+        self.no_opt_stats = self.get_data(custom_circuit.to_basic_gates())
+        self.rand_circuit = self.basic_optimise(custom_circuit.split_phase_gates())
+        self.initial_stats = self.get_data(self.rand_circuit.to_basic_gates())
+        self.graph = self.rand_circuit.to_graph()
+
+        # 2. Synchronize Trackers and Apply Simplifications 
+
+        self.current_gates = self.initial_stats[self.gate_type]
+        try: 
+            zx.simplify.teleport_reduce(self.graph) 
+        except Exception as e:
+            raise ValueError(f"Custom circuit failed teleportation_reduce : {e}")
+        
+        self.to_graph_like()
+        self.graph = self.graph.copy()
+
+        # 3. Establsih PyZX and Greedy Baselines 
+
+        graph_korbinian = self.graph.copy()
+        zx.simplify.greedy_simp(graph_korbinian)
+        circuit_korbinian = self.basic_optimise(zx.extract_circuit(graph_korbinian, up_to_perm= True))
+
+        self.korb_gates = self.get_data(circuit_korbinian.to_basic_gates())[self.gate_type]
+
+        self.pyzx_data = self.get_data(self.flow_opt(self.graph.copy()))
+        self.pyzx_gates = self.pyzx_data[self.gate_type]
+
+        # 4. Populate RL Action Lookups 
+        self.pivot_info_dict = self.match_pivot_parallel() | self.match_pivot_boundary()
+        self.gadget_info_dict, self.gadgets = self.match_phase_gadgets()
+        self.gadget_fusion_ids = list(self.gadget_info_dict)
+
+        self.final_circuit = self.rand_circuit
+        self.min_gates = self.initial_stats[self.gate_type]
+
+        # 5. Return Initial Observation and Info
+        return self.graph, {"graph_obs": [self.policy_obs(), self.value_obs()]}
+
+
+
     def reset(self, seed=None, options=None):
         # parameters
         self.episode_len = 0
@@ -1166,3 +1227,4 @@ class ZXEnv(gym.Env):
         return c
 
     
+

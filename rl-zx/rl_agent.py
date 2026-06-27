@@ -8,6 +8,7 @@ from torch.distributions.categorical import Categorical
 from torch_geometric.nn import Sequential as geo_Sequential
 from torch_geometric.nn.aggr import AttentionalAggregation
 
+# Only for MAC! metal performance shaders 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 class CategoricalMasked(Categorical):
@@ -144,6 +145,7 @@ class AgentGNN(nn.Module):
         aggregated = self.global_attention_critic(features, x.batch)
         return self.critic_ff(aggregated)
     
+    # why do we have a device = cuda in here? 
     def get_action(self, x, device="cuda"):
         policy_obs, _ = x
         logits = self.actor(policy_obs)
