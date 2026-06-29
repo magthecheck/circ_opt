@@ -3,6 +3,7 @@ import torch
 from torch_geometric.data import Data, Batch
 from rl_agent import AgentGNN
 from mock_env import MockColorEnv  
+from simple_node_agent import SimpleNodeAgent
 
 def export_to_dot(graph, step_num, action_desc="None", reward_val=0.0):
     """
@@ -42,10 +43,12 @@ device = torch.device("cpu")
 env = MockColorEnv(num_nodes=5)
 
 # Initialize the GNN Agent Structure
-agent = AgentGNN(envs=None, device=device, c_hidden=32, c_hidden_v=32).to(device)
+
+#agent = AgentGNN(envs=None, device=device, c_hidden=32, c_hidden_v=32).to(device)
+agent = SimpleNodeAgent(num_nodes=5).to(device)
 
 # --- NEW: Load Your Computed Weights Matrix ---
-weights_path = "trained_color_gnn.pt"
+weights_path = "trained_color_gnn_MLP_5000.pt"
 if os.path.exists(weights_path):
     agent.load_state_dict(torch.load(weights_path, map_location=device))
     print(f"Successfully loaded trained weights from '{weights_path}'!")
@@ -98,7 +101,9 @@ for step in range(1, 30):
     # Collate Single Graphs into Batches for the Network Forward Pass
     policy_batch = Batch.from_data_list([policy_graph]).to(device)
     critic_batch = Batch.from_data_list([critic_graph]).to(device)
-    network_input = (policy_batch, critic_batch)
+    #network_input = (policy_batch, critic_batch)
+    network_input = policy_batch
+
 
     # 3. Agent Evaluation (Predict Action using loaded weights)
     with torch.no_grad():

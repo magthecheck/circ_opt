@@ -7,8 +7,13 @@ from mock_env import MockColorEnv  # Your simple color environment
 from rl_agent import AgentGNN     # Your custom GNN Agent
 from simple_node_agent import SimpleNodeAgent
 
+
+# For writing in csv file
+import csv
+import os 
+
 # --- Hyperparameters ---
-NUM_EPISODES = 1000       # Total game rounds to train on
+NUM_EPISODES = 4000       # Total game rounds to train on
 EPISODE_LENGTH = 6      # Maximum steps per episode
 LR = 5e-4                # Learning rate for Adam Optimizer
 GAMMA = 0.99             # Discount factor for long-term rewards
@@ -48,6 +53,19 @@ def build_pyg_input(policy_x, policy_edge_index, value_x, value_edge_index):
 
 
 print("Starting Training Loop...")
+
+
+# Define the CVS file path
+csv_file_path = "training_logs.csv"
+
+# Write headers only if the file doesn't exist yet
+if not os.path.exists(csv_file_path):
+    with open(csv_file_path, mode='w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Episode", "Total Reward", "Final Loss"])
+
+
+
 for episode in range(1, NUM_EPISODES + 1):
     
     # --- PHASE 1: COLLECT ROLLOUT TRAJECTORY ---
@@ -146,6 +164,16 @@ for episode in range(1, NUM_EPISODES + 1):
     if episode % 10 == 0 or episode == 1:
         print(f"Episode {episode:3d}/{NUM_EPISODES} | Total Reward: {total_episode_reward:5.1f} | Final Loss: {total_loss.item():.4f}")
 
+
+        # Append the structured data to the CSV file
+        with open(csv_file_path, mode='a', newline='') as f: 
+            writer = csv.writer(f)
+            writer.writerow([
+                episode,
+                f"{total_episode_reward:.1f}",
+                f"{total_loss.item():.4f}"
+                ])
+        
 # 4. Save Trained Policy Weights to Disk
-torch.save(agent.state_dict(), "trained_color_gnn.pt")
-print("\nSuccess! Meaningful weights generated and saved as 'trained_color_gnn.pt'.")
+torch.save(agent.state_dict(), "trained_color_gnn_MLP_4000.pt")
+print("\nSuccess! Meaningful weights generated and saved as 'trained_color_gnn_MLP_5000.pt'.")

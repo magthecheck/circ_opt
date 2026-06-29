@@ -74,7 +74,7 @@ class MockColorEnv(gym.Env):
             else:
                 reward = 0.3
         else: 
-            reward = -0.5 # Penalty for trying an invalid transition
+            reward = -1 # Penalty for trying an invalid transition
             
         # Determine termination criteria
         done = self.episode_len >= self.max_episode_len
