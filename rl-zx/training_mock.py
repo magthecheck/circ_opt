@@ -5,6 +5,7 @@ from torch.distributions.categorical import Categorical
 
 from mock_env import MockColorEnv  # Your simple color environment
 from rl_agent import AgentGNN     # Your custom GNN Agent
+from simple_node_agent import SimpleNodeAgent
 
 # --- Hyperparameters ---
 NUM_EPISODES = 1000       # Total game rounds to train on
@@ -19,7 +20,8 @@ print(f"Running training loop on: {device}")
 
 # 1. Initialize Objects
 env = MockColorEnv(num_nodes=10, max_episode_len=EPISODE_LENGTH)
-agent = AgentGNN(envs=None, device=device, c_hidden=32, c_hidden_v=32).to(device)
+agent = SimpleNodeAgent(num_nodes = env.num_nodes).to(env.device)
+#agent = AgentGNN(envs=None, device=device, c_hidden=32, c_hidden_v=32).to(device)
 optimizer = optim.Adam(agent.parameters(), lr=LR)
 
 total_actions = env.num_nodes * 2
@@ -108,7 +110,9 @@ for episode in range(1, NUM_EPISODES + 1):
         
     returns_tensor = torch.tensor(discounted_returns, dtype=torch.float32)
     values_tensor = torch.cat(episode_values).flatten()
-    old_log_probs_tensor = torch.cat(episode_log_probs).detach()
+    
+    old_log_probs_tensor = torch.stack(episode_log_probs).detach()
+    # old_log_probs_tensor = torch.cat(episode_log_probs).detach()
     
     advantages_tensor = returns_tensor - values_tensor.detach()
 
