@@ -20,12 +20,13 @@ GAMMA = 0.99             # Discount factor for long-term rewards
 PPO_EPOCHS = 4           # How many times to reuse collected data per update
 CLIP_EPS = 0.2           # PPO clipping constraint for safe updates
 
-device = torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Running training loop on: {device}")
 
 # 1. Initialize Objects
 env = MockColorEnv(num_nodes=10, max_episode_len=EPISODE_LENGTH)
-agent = SimpleNodeAgent(num_nodes = env.num_nodes).to(env.device)
+#agent = SimpleNodeAgent(num_nodes = env.num_nodes).to(env.device)
+agent = SimpleNodeAgent(num_nodes = env.num_nodes).to(device) 
 #agent = AgentGNN(envs=None, device=device, c_hidden=32, c_hidden_v=32).to(device)
 optimizer = optim.Adam(agent.parameters(), lr=LR)
 
@@ -84,6 +85,12 @@ for episode in range(1, NUM_EPISODES + 1):
         # Package data for the forward pass
         raw_p, raw_v = info["graph_obs"]
         p_batch, v_batch = build_pyg_input(raw_p[0], raw_p[1], raw_v[0], raw_v[1])
+        
+        # GPU Usage ---
+        p_batch = p_batch.to(device)
+        v_batch = v_batch.to(device) 
+        # GPU Usage --
+        
         network_input = (p_batch, v_batch)
         
         # FIXED: Explicitly call get_action, which returns 2 values (action, action_id) in inference mode
@@ -127,9 +134,9 @@ for episode in range(1, NUM_EPISODES + 1):
         discounted_returns.insert(0, g)
         
     returns_tensor = torch.tensor(discounted_returns, dtype=torch.float32)
-    values_tensor = torch.cat(episode_values).flatten()
+    values_tensor = torch.cat(episode_values).flatten().to(device)
     
-    old_log_probs_tensor = torch.stack(episode_log_probs).detach()
+    old_log_probs_tensor = torch.stack(episode_log_probs).detach().to(device)
     # old_log_probs_tensor = torch.cat(episode_log_probs).detach()
     
     advantages_tensor = returns_tensor - values_tensor.detach()
@@ -175,5 +182,5 @@ for episode in range(1, NUM_EPISODES + 1):
                 ])
         
 # 4. Save Trained Policy Weights to Disk
-torch.save(agent.state_dict(), "trained_color_gnn_MLP_4000.pt")
-print("\nSuccess! Meaningful weights generated and saved as 'trained_color_gnn_MLP_5000.pt'.")
+torch.save(agent.state_dict(), "trained_color_gnn_MLP_4000_new.pt")
+print("\nSuccess! Meaningful weights generated and saved as 'trained_color_gnn_MLP_4000_new.pt'.")
