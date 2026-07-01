@@ -134,7 +134,8 @@ for episode in range(1, NUM_EPISODES + 1):
         discounted_returns.insert(0, g)
         
     returns_tensor = torch.tensor(discounted_returns, dtype=torch.float32)
-    values_tensor = torch.cat(episode_values).flatten().to(device)
+    
+    values_tensor = torch.cat([v.to(device) for v in episode_values]).flatten()
     
     old_log_probs_tensor = torch.stack(episode_log_probs).detach().to(device)
     # old_log_probs_tensor = torch.cat(episode_log_probs).detach()
