@@ -133,7 +133,7 @@ for episode in range(1, NUM_EPISODES + 1):
         g = r + GAMMA * g
         discounted_returns.insert(0, g)
         
-    returns_tensor = torch.tensor(discounted_returns, dtype=torch.float32)
+    returns_tensor = torch.tensor(discounted_returns, dtype=torch.float32).to(device)
     
     values_tensor = torch.cat([v.to(device) for v in episode_values]).flatten()
     
