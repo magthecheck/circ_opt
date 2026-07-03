@@ -48,6 +48,14 @@ def parse_args():
         action="store_true",
         help="Enable GPU acceleration modes, vectorization, and batch optimization paths."
     )
+
+    parser.add_argument(
+        "--agent", "-a",
+        type=str,
+        choices=["gnn","simple"],
+        default="simple",
+        help = "Select which agent architecture to train: 'gnn' (AgentGNN) or 'simple' (SimpleNodeAgent)"
+    )
     return parser.parse_args()
 
 
@@ -60,6 +68,7 @@ if __name__ == "__main__":
     csv_file_path = args.csv_out
     model_file_path = args.model_out
     USE_GPU_OPTIMIZATIONS = args.gpu
+    SELECTED_AGENT = args.agent
 
     EPISODE_LENGTH = 6      # Maximum steps per episode
     LR = 5e-4                # Learning rate for Adam Optimizer
@@ -75,6 +84,7 @@ if __name__ == "__main__":
             print("Warning: GPU flag requested but CUDA is unavailable. Defaulting to CPU.")
 
     print(f"Running training loop on: {device}")
+    print(f"Active Agent Architecture: {SELECTED_AGENT.upper()}")
     print(f"Graph Size: {NUM_NODES} nodes.")
     print(f"Training for {NUM_EPISODES} episodes.")
     print(f"Logging to: {csv_file_path}")
@@ -82,7 +92,12 @@ if __name__ == "__main__":
 
     # 1. Initialize Objects
     env = MockColorEnv(num_nodes=NUM_NODES, max_episode_len=EPISODE_LENGTH)
-    agent = SimpleNodeAgent(num_nodes=env.num_nodes).to(device) 
+    
+    if SELECTED_AGENT == "gnn": 
+        agent = AgentGNN(envs=None, device=device, c_hidden=32, c_hidden_v=32).to(device)
+    else:
+        agent = SimpleNodeAgent(num_nodes=env.num_nodes).to(device) 
+        
     optimizer = optim.Adam(agent.parameters(), lr=LR)
 
     total_actions = env.num_nodes * 2
