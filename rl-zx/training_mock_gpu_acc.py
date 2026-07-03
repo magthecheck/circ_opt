@@ -36,6 +36,7 @@ def parse_args():
         default="training_logs.csv", 
         help="Output filename/path for the CSV training logs (default: training_logs.csv)"
     )
+
     parser.add_argument(
         "--nodes", "-n",
         type=int,
@@ -50,6 +51,7 @@ if __name__ == "__main__":
 
     # --- Hyperparameters ---
     NUM_EPISODES = args.episodes
+    NUM_NODES = args.nodes
     csv_file_path = args.csv_out
     model_file_path = args.model_out
 
@@ -61,12 +63,13 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Running training loop on: {device}")
+    print(f"Graph Size: {NUM_NODES} nodes.")
     print(f"Training for {NUM_EPISODES} episodes.")
     print(f"Logging to: {csv_file_path}")
     print(f"Model will save to: {model_file_path}\n")
 
     # 1. Initialize Objects
-    env = MockColorEnv(num_nodes=10, max_episode_len=EPISODE_LENGTH)
+    env = MockColorEnv(num_nodes=NUM_NODES, max_episode_len=EPISODE_LENGTH)
     agent = SimpleNodeAgent(num_nodes=env.num_nodes).to(device) 
     optimizer = optim.Adam(agent.parameters(), lr=LR)
 
@@ -117,25 +120,25 @@ for episode in range(1, NUM_EPISODES + 1):
     _, info = env.reset()
     
     # Temporary storage buffers for this episode
-    episode_inputs = []
+    episode_p_graphs = []
+    episode_v_graphs = []
     episode_actions = []
     episode_log_probs = []
     episode_rewards = []
     episode_values = []
-    
     total_episode_reward = 0
     
     for step in range(EPISODE_LENGTH):
         # Package data for the forward pass
         raw_p, raw_v = info["graph_obs"]
-        p_batch, v_batch = build_pyg_input(raw_p[0], raw_p[1], raw_v[0], raw_v[1])
-        
-        # GPU Usage ---
-        p_batch = p_batch.to(device)
-        v_batch = v_batch.to(device) 
-        # GPU Usage --
-        
+
+        p_graph, v_graph = build_pyg_input(raw_p[0], raw_p[1], raw_v[0], raw_v[1])
+            
+        # Temporary batches just for the single inference step forward pass
+        p_batch = Batch.from_data_list([p_graph]).to(device)
+        v_batch = Batch.from_data_list([v_graph]).to(device) 
         network_input = (p_batch, v_batch)
+        
         
         # FIXED: Explicitly call get_action, which returns 2 values (action, action_id) in inference mode
         action, action_id = agent.get_action(network_input, device=device)
@@ -159,12 +162,14 @@ for episode in range(1, NUM_EPISODES + 1):
         # Step the environment
         _, reward, done, _, info = env.step(chosen_action)
         
-        # Store records into rollout optimization buffers
-        episode_inputs.append(network_input)
+        # === GPU SPEED FIX: Cache unbatched raw graphs to batch them cleanly later ===
+        episode_p_graphs.append(p_graph)
+        episode_v_graphs.append(v_graph)
         episode_actions.append(action_id)
         episode_log_probs.append(log_prob)
         episode_rewards.append(reward)
         episode_values.append(value)
+
         
         total_episode_reward += reward
         if done:
@@ -186,31 +191,37 @@ for episode in range(1, NUM_EPISODES + 1):
     
     advantages_tensor = returns_tensor - values_tensor.detach()
 
+
+    batched_p_input = Batch.from_data_list([g.to(device) for g in episode_p_graphs])
+    batched_v_input = Batch.from_data_list([g.to(device) for g in episode_v_graphs])
+    batched_actions = torch.stack(episode_actions).to(device) 
+    batched_network_input = (batched_p_input, batched_v_input)    
+
+
+
     # --- PHASE 3: OPTIMIZE CRITIC & ACTOR WEIGHTS ---
     for epoch in range(PPO_EPOCHS):
-        for i in range(len(episode_inputs)):
-            inp = episode_inputs[i]
-            old_act = episode_actions[i]
-            
-            # FIXED: Explicitly call .get_action(). In this code-path (with action provided),
-            # your agent naturally executes all the way through to return exactly 4 training variables.
-            _, new_log_prob, _, new_val, *_ = agent.get_action_and_value(inp, action=old_act)
+        # === GPU SPEED FIX: Removed the sequential 'for i in range(len(episode_inputs)):' loop.
+        # Passing the full batch vectors variables directly through the agent.
+        _, new_log_prob, _, new_val, *_ = agent.get_action_and_value(
+            batched_network_input, 
+            action=batched_actions
+            )
 
-            # 1. Actor Loss (PPO Clipped Objective)
-            ratio = torch.exp(new_log_prob - old_log_probs_tensor[i])
-            surr1 = ratio * advantages_tensor[i]
-            surr2 = torch.clamp(ratio, 1.0 - CLIP_EPS, 1.0 + CLIP_EPS) * advantages_tensor[i]
-            actor_loss = -torch.min(surr1, surr2)
+        # 1. Actor Loss (Vectorized across the entire episode)
+        ratio = torch.exp(new_log_prob - old_log_probs_tensor)
+        surr1 = ratio * advantages_tensor
+        surr2 = torch.clamp(ratio, 1.0 - CLIP_EPS, 1.0 + CLIP_EPS) * advantages_tensor
+        actor_loss = -torch.min(surr1, surr2).mean() # Added .mean() for the full batch vector
             
-            # 2. Critic Loss (Mean Squared Error against returns)
-            critic_loss = 0.5 * (new_val.flatten() - returns_tensor[i]) ** 2
+        # 2. Critic Loss (Vectorized Mean Squared Error against returns)
+        critic_loss = 0.5 * ((new_val.flatten() - returns_tensor) ** 2).mean() # Added .mean()
             
-            # 3. Combined Loss Backpropagation
-            total_loss = actor_loss + critic_loss
+        # 3. Combined Loss Backpropagation
+        total_loss = actor_loss + critic_loss
             
-            optimizer.zero_grad()
-            total_loss.backward()
-            optimizer.step()
+        optimizer.zero_grad()
+        total_loss.backward
 
     # Console Logging Tracker
     if episode % 10 == 0 or episode == 1:
