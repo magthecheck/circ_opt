@@ -97,7 +97,7 @@ if __name__ == "__main__":
         agent = AgentGNN(envs=None, device=device, c_hidden=32, c_hidden_v=32).to(device)
     else:
         agent = SimpleNodeAgent(num_nodes=env.num_nodes).to(device) 
-        
+
     optimizer = optim.Adam(agent.parameters(), lr=LR)
 
     total_actions = env.num_nodes * 2
@@ -239,6 +239,7 @@ for episode in range(1, NUM_EPISODES + 1):
             _, new_log_prob, _, new_val, *_ = agent.get_action_and_value(
                 batched_network_input, 
                 action=batched_actions
+                device = device
                 )
 
             # 1. Actor Loss (Vectorized across the entire episode)
