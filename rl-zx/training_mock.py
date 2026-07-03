@@ -67,7 +67,8 @@ if __name__ == "__main__":
 
     # 1. Initialize Objects
     env = MockColorEnv(num_nodes=10, max_episode_len=EPISODE_LENGTH)
-    agent = SimpleNodeAgent(num_nodes=env.num_nodes).to(device) 
+    #agent = SimpleNodeAgent(num_nodes=env.num_nodes).to(device) 
+    #agent = AgentGNN(envs=None, device=device, c_hidden=32, c_hidden_v=32).to(device)
     optimizer = optim.Adam(agent.parameters(), lr=LR)
 
     total_actions = env.num_nodes * 2

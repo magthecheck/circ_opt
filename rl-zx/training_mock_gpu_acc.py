@@ -43,6 +43,11 @@ def parse_args():
         default = 10,
         help="Number of nodes in the environment graph (default: 10)"
     )
+    parser.add_argument(
+        "--gpu", "-g",
+        action="store_true",
+        help="Enable GPU acceleration modes, vectorization, and batch optimization paths."
+    )
     return parser.parse_args()
 
 
@@ -54,6 +59,7 @@ if __name__ == "__main__":
     NUM_NODES = args.nodes
     csv_file_path = args.csv_out
     model_file_path = args.model_out
+    USE_GPU_OPTIMIZATIONS = args.gpu
 
     EPISODE_LENGTH = 6      # Maximum steps per episode
     LR = 5e-4                # Learning rate for Adam Optimizer
@@ -61,7 +67,13 @@ if __name__ == "__main__":
     PPO_EPOCHS = 4           # How many times to reuse collected data per update
     CLIP_EPS = 0.2           # PPO clipping constraint for safe updates
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if USE_GPU_OPTIMIZATIONS and torch.cuda.is_available():
+        device = torch.device("cuda")   
+    else:
+        device = torch.device("cpu")
+        if USE_GPU_OPTIMIZATIONS:
+            print("Warning: GPU flag requested but CUDA is unavailable. Defaulting to CPU.")
+
     print(f"Running training loop on: {device}")
     print(f"Graph Size: {NUM_NODES} nodes.")
     print(f"Training for {NUM_EPISODES} episodes.")
@@ -122,7 +134,8 @@ for episode in range(1, NUM_EPISODES + 1):
     # Temporary storage buffers for this episode
     episode_p_graphs = []
     episode_v_graphs = []
-    episode_actions = []
+    episode_local_actions = []
+    episode_action_ids = [] 
     episode_log_probs = []
     episode_rewards = []
     episode_values = []
@@ -165,7 +178,8 @@ for episode in range(1, NUM_EPISODES + 1):
         # === GPU SPEED FIX: Cache unbatched raw graphs to batch them cleanly later ===
         episode_p_graphs.append(p_graph)
         episode_v_graphs.append(v_graph)
-        episode_actions.append(action_id)
+        episode_local_actions.append(action.flatten())
+        episode_action_ids.append(action_id)
         episode_log_probs.append(log_prob)
         episode_rewards.append(reward)
         episode_values.append(value)
@@ -191,37 +205,70 @@ for episode in range(1, NUM_EPISODES + 1):
     
     advantages_tensor = returns_tensor - values_tensor.detach()
 
+    if USE_GPU_OPTIMIZATIONS:
+        # ==========================================
+        # GPU OPTIMIZED PIPELINE (BATCH VECTORIZED)
+        # ==========================================
 
-    batched_p_input = Batch.from_data_list([g.to(device) for g in episode_p_graphs])
-    batched_v_input = Batch.from_data_list([g.to(device) for g in episode_v_graphs])
-    batched_actions = torch.stack(episode_actions).to(device) 
-    batched_network_input = (batched_p_input, batched_v_input)    
+        batched_p_input = Batch.from_data_list([g.to(device) for g in episode_p_graphs])
+        batched_v_input = Batch.from_data_list([g.to(device) for g in episode_v_graphs])
+        batched_actions = torch.cat(episode_local_actions).to(device) 
+        batched_network_input = (batched_p_input, batched_v_input)    
 
 
 
-    # --- PHASE 3: OPTIMIZE CRITIC & ACTOR WEIGHTS ---
-    for epoch in range(PPO_EPOCHS):
-        # === GPU SPEED FIX: Removed the sequential 'for i in range(len(episode_inputs)):' loop.
-        # Passing the full batch vectors variables directly through the agent.
-        _, new_log_prob, _, new_val, *_ = agent.get_action_and_value(
-            batched_network_input, 
-            action=batched_actions
-            )
+        # --- PHASE 3: OPTIMIZE CRITIC & ACTOR WEIGHTS ---
+        for epoch in range(PPO_EPOCHS):
+            # === GPU SPEED FIX: Removed the sequential 'for i in range(len(episode_inputs)):' loop.
+            # Passing the full batch vectors variables directly through the agent.
+            _, new_log_prob, _, new_val, *_ = agent.get_action_and_value(
+                batched_network_input, 
+                action=batched_actions
+                )
 
-        # 1. Actor Loss (Vectorized across the entire episode)
-        ratio = torch.exp(new_log_prob - old_log_probs_tensor)
-        surr1 = ratio * advantages_tensor
-        surr2 = torch.clamp(ratio, 1.0 - CLIP_EPS, 1.0 + CLIP_EPS) * advantages_tensor
-        actor_loss = -torch.min(surr1, surr2).mean() # Added .mean() for the full batch vector
-            
-        # 2. Critic Loss (Vectorized Mean Squared Error against returns)
-        critic_loss = 0.5 * ((new_val.flatten() - returns_tensor) ** 2).mean() # Added .mean()
-            
-        # 3. Combined Loss Backpropagation
-        total_loss = actor_loss + critic_loss
-            
-        optimizer.zero_grad()
-        total_loss.backward
+            # 1. Actor Loss (Vectorized across the entire episode)
+            ratio = torch.exp(new_log_prob - old_log_probs_tensor)
+            surr1 = ratio * advantages_tensor
+            surr2 = torch.clamp(ratio, 1.0 - CLIP_EPS, 1.0 + CLIP_EPS) * advantages_tensor
+            actor_loss = -torch.min(surr1, surr2).mean() # Added .mean() for the full batch vector
+                
+            # 2. Critic Loss (Vectorized Mean Squared Error against returns)
+            critic_loss = 0.5 * ((new_val.flatten() - returns_tensor) ** 2).mean() # Added .mean()
+                
+            # 3. Combined Loss Backpropagation
+            total_loss = actor_loss + critic_loss
+                
+            optimizer.zero_grad()
+            total_loss.backward
+            optimizer.step()
+    else: 
+        # ==========================================
+        # CPU OPTIMIZED PIPELINE (SEQUENTIAL ITER)
+        # ==========================================
+        for epoch in range(PPO_EPOCHS):
+            for i in range(len(episode_p_graphs)):
+                # Extract single items to compute one step at a time, avoiding PyG collation overhead on CPU
+                s_p_batch = Batch.from_data_list([episode_p_graphs[i]]).to(device)
+                s_v_batch = Batch.from_data_list([episode_v_graphs[i]]).to(device)
+                single_input = (s_p_batch, s_v_batch)
+                single_act = episode_local_actions[i].to(device)
+
+                _, new_log_prob, _, new_val, *_ = agent.get_action_and_value(
+                    single_input, 
+                    action=single_act
+                )
+
+                ratio = torch.exp(new_log_prob - old_log_probs_tensor[i])
+                surr1 = ratio * advantages_tensor[i]
+                surr2 = torch.clamp(ratio, 1.0 - CLIP_EPS, 1.0 + CLIP_EPS) * advantages_tensor[i]
+                actor_loss = -torch.min(surr1, surr2)
+                   
+                critic_loss = 0.5 * (new_val.flatten() - returns_tensor[i]) ** 2
+                total_loss = actor_loss + critic_loss
+                    
+                optimizer.zero_grad()
+                total_loss.backward()
+                optimizer.step()
 
     # Console Logging Tracker
     if episode % 10 == 0 or episode == 1:
