@@ -238,7 +238,7 @@ for episode in range(1, NUM_EPISODES + 1):
             # Passing the full batch vectors variables directly through the agent.
             _, new_log_prob, _, new_val, *_ = agent.get_action_and_value(
                 batched_network_input, 
-                action=batched_actions
+                action=batched_actions,
                 device = device
                 )
 
